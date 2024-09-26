@@ -174,6 +174,12 @@ def info_command(file_name: str) -> None:
     print("Tracker URL:", torrent[b"announce"].decode(ENCODING))
     print("Length:", torrent[b"info"][b"length"])
     print("Info Hash:", info_hash)
+    print("Piece Length:", torrent[b"info"][b"piece length"])
+    pieces = torrent[b"info"][b"pieces"]
+    piece_hashes = [pieces[i : i + 20].hex() for i in range(0, len(pieces), 20)]
+    print("Piece Hashes: ")
+    for hash in piece_hashes:
+        print(hash)
 
 
 def main() -> None:
