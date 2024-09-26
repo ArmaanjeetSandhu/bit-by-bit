@@ -8,10 +8,10 @@ The script provides two main functionalities: decoding Bencode and extracting to
 
 ### Decoding Bencode
 
-To decode a Bencode-encoded string:
+To decode a Bencoded string:
 
 ```
-python bencode_decoder.py decode "d3:cow3:moo4:spam4:eggse"
+python script.py decode "d3:cow3:moo4:spam4:eggse"
 ```
 
 This will output the decoded data in JSON format:
@@ -25,7 +25,7 @@ This will output the decoded data in JSON format:
 To extract basic information from a torrent file:
 
 ```
-python bencode_decoder.py info path/to/your/torrent/file.torrent
+python script.py info path/to/your/torrent/file.torrent
 ```
 
 This will output the tracker URL and the total length of the file(s) in the torrent:
