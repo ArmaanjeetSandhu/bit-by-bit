@@ -169,17 +169,55 @@ def info_command(file_name: str) -> None:
     with open(file_name, "rb") as torrent_file:
         bencoded_content = torrent_file.read()
 
-    torrent, _ = decode_bencode(bencoded_content)
+    try:
+        torrent, _ = decode_bencode(bencoded_content)
+    except Exception as e:
+        print(f"Error decoding the torrent file: {str(e)}")
+        return
+
     info_hash = calculate_info_hash(torrent[b"info"])
-    print("Tracker URL:", torrent[b"announce"].decode(ENCODING))
-    print("Length:", torrent[b"info"][b"length"])
+
+    if b"files" in torrent[b"info"]:
+        print("This is a multi-file torrent.")
+        try:
+            total_length = sum(file[b"length"] for file in torrent[b"info"][b"files"])
+            print(f"Total length of all files: {total_length}")
+        except Exception as e:
+            print(f"Error calculating total length: {str(e)}")
+    else:
+        print("This is a single-file torrent.")
+
+    print("")
+    print("Tracker URL:", safe_decode(torrent.get(b"announce", b"Not found")))
+    print("Length:", torrent[b"info"].get(b"length", "Not found"))
     print("Info Hash:", info_hash)
-    print("Piece Length:", torrent[b"info"][b"piece length"])
+    print("Piece Length:", torrent[b"info"].get(b"piece length", "Not found"))
+
     pieces = torrent[b"info"][b"pieces"]
     piece_hashes = [pieces[i : i + 20].hex() for i in range(0, len(pieces), 20)]
-    print("Piece Hashes: ")
+    print("Piece Hashes:")
     for hash in piece_hashes:
         print(hash)
+
+
+def print_dict_keys(d, indent=0):
+    for key, value in d.items():
+        if isinstance(key, bytes):
+            key = safe_decode(key)
+        print("  " * indent + str(key) + ":")
+        if isinstance(value, dict):
+            print_dict_keys(value, indent + 1)
+        elif isinstance(value, list):
+            print("  " * (indent + 1) + f"[List with {len(value)} items]")
+        else:
+            print("  " * (indent + 1) + f"Value type: {type(value)}")
+
+
+def safe_decode(byte_string):
+    try:
+        return byte_string.decode("utf-8")
+    except UnicodeDecodeError:
+        return f"[Bytes: {byte_string[:20].hex()}...]"
 
 
 def main() -> None:
