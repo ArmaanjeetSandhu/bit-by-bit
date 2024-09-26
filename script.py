@@ -1,17 +1,26 @@
 import json
 import sys
+import os
+import argparse
 from typing import Union, Tuple, List, Dict, Any
+
+ENCODING = "utf-8"
+
 
 class BencodeDecodeError(Exception):
     """Custom exception for Bencode decoding errors."""
+
     pass
 
-def decode_bencode(bencoded_value: bytes) -> Tuple[Union[int, bytes, List, Dict], bytes]:
+
+def decode_bencode(
+    bencoded_value: bytes,
+) -> Tuple[Union[int, bytes, List, Dict], bytes]:
     """
-    Decode a Bencoded value.
+    Decode a Bencode-encoded value.
 
     Args:
-        bencoded_value (bytes): The Bencoded value to decode.
+        bencoded_value (bytes): The Bencode-encoded value to decode.
 
     Returns:
         Tuple[Union[int, bytes, List, Dict], bytes]: A tuple containing the decoded value and any remaining bytes.
@@ -36,8 +45,9 @@ def decode_bencode(bencoded_value: bytes) -> Tuple[Union[int, bytes, List, Dict]
     else:
         raise BencodeDecodeError(f"Unsupported Bencode type: {chr(bencoded_value[0])}")
 
+
 def _decode_string(bencoded_value: bytes) -> Tuple[bytes, bytes]:
-    """Decode a Bencoded string."""
+    """Decode a Bencode-encoded string."""
     first_colon_index = bencoded_value.find(b":")
     if first_colon_index == -1:
         raise BencodeDecodeError("Invalid Bencoded string: missing colon")
@@ -51,18 +61,20 @@ def _decode_string(bencoded_value: bytes) -> Tuple[bytes, bytes]:
         raise BencodeDecodeError("Invalid Bencoded string: length mismatch")
     return bencoded_value[start_index:end_index], bencoded_value[end_index:]
 
+
 def _decode_integer(bencoded_value: bytes) -> Tuple[int, bytes]:
-    """Decode a Bencoded integer."""
+    """Decode a Bencode-encoded integer."""
     end_index = bencoded_value.find(b"e", 1)
     if end_index == -1:
         raise BencodeDecodeError("Invalid encoded integer: missing 'e'")
     try:
-        return int(bencoded_value[1:end_index]), bencoded_value[end_index + 1:]
+        return int(bencoded_value[1:end_index]), bencoded_value[end_index + 1 :]
     except ValueError:
         raise BencodeDecodeError("Invalid encoded integer: non-numeric content")
 
+
 def _decode_list(bencoded_value: bytes) -> Tuple[List, bytes]:
-    """Decode a Bencoded list."""
+    """Decode a Bencode-encoded list."""
     decoded_list = []
     rest = bencoded_value[1:]
     while rest and rest[0] != ord("e"):
@@ -72,21 +84,25 @@ def _decode_list(bencoded_value: bytes) -> Tuple[List, bytes]:
         raise BencodeDecodeError("Invalid Bencoded list: missing 'e'")
     return decoded_list, rest[1:]
 
+
 def _decode_dict(bencoded_value: bytes) -> Tuple[Dict, bytes]:
-    """Decode a Bencoded dictionary."""
+    """Decode a Bencode-encoded dictionary."""
     decoded_dict = {}
     rest = bencoded_value[1:]
     while rest and rest[0] != ord("e"):
         key, rest = decode_bencode(rest)
         if not isinstance(key, bytes):
-            raise BencodeDecodeError("Invalid Bencoded dictionary: key must be a string")
+            raise BencodeDecodeError(
+                "Invalid Bencoded dictionary: key must be a string"
+            )
         value, rest = decode_bencode(rest)
         decoded_dict[key] = value
     if not rest or rest[0] != ord("e"):
         raise BencodeDecodeError("Invalid Bencoded dictionary: missing 'e'")
     return decoded_dict, rest[1:]
 
-def decode_bytes_in_structure(data: Any) -> Any:
+
+def decode_bytes_in_structure(data: Any) -> Union[str, Dict, List, Any]:
     """
     Recursively decode bytes to strings in a data structure.
 
@@ -94,33 +110,70 @@ def decode_bytes_in_structure(data: Any) -> Any:
         data (Any): The data structure to process.
 
     Returns:
-        Any: The processed data structure with bytes decoded to strings.
+        Union[str, Dict, List, Any]: The processed data structure with bytes decoded to strings.
     """
     if isinstance(data, bytes):
-        return data.decode()
+        return data.decode(ENCODING)
     if isinstance(data, dict):
-        return {decode_bytes_in_structure(k): decode_bytes_in_structure(v) for k, v in data.items()}
+        return {
+            decode_bytes_in_structure(k): decode_bytes_in_structure(v)
+            for k, v in data.items()
+        }
     if isinstance(data, list):
         return [decode_bytes_in_structure(item) for item in data]
     return data
 
-def main():
-    """Main function to handle command-line interface."""
-    try:
-        if len(sys.argv) < 3:
-            raise ValueError("Insufficient arguments. Usage: python script.py <command> <bencoded_value>")
 
-        command = sys.argv[1]
-        if command == "decode":
-            bencoded_value = sys.argv[2].encode()
-            decoded_value, _ = decode_bencode(bencoded_value)
-            decoded_value = decode_bytes_in_structure(decoded_value)
-            print(json.dumps(decoded_value))
-        else:
-            raise NotImplementedError(f"Unknown command {command}")
-    except (BencodeDecodeError, ValueError, NotImplementedError) as e:
+def decode_command(bencoded_value: str) -> None:
+    """Handle the 'decode' command."""
+    try:
+        decoded_value, _ = decode_bencode(bencoded_value.encode(ENCODING))
+        decoded_value = decode_bytes_in_structure(decoded_value)
+        print(json.dumps(decoded_value))
+    except json.JSONDecodeError as e:
+        print(
+            f"Error: Unable to JSON encode the decoded value. {str(e)}", file=sys.stderr
+        )
+        sys.exit(1)
+
+
+def info_command(file_name: str) -> None:
+    """Handle the 'info' command."""
+    if not os.path.exists(file_name):
+        raise FileNotFoundError(f"The file {file_name} does not exist.")
+
+    with open(file_name, "rb") as torrent_file:
+        bencoded_content = torrent_file.read()
+
+    torrent, _ = decode_bencode(bencoded_content)
+    print("Tracker URL:", torrent[b"announce"].decode(ENCODING))
+    print("Length:", torrent[b"info"][b"length"])
+
+
+def main() -> None:
+    """Main function to handle command-line interface."""
+    parser = argparse.ArgumentParser(
+        description="Bencode decoder and torrent info extractor."
+    )
+    parser.add_argument(
+        "command", choices=["decode", "info"], help="Command to execute"
+    )
+    parser.add_argument("input", help="Bencoded value or torrent file path")
+
+    args = parser.parse_args()
+
+    try:
+        if args.command == "decode":
+            decode_command(args.input)
+        elif args.command == "info":
+            info_command(args.input)
+    except (BencodeDecodeError, ValueError, FileNotFoundError) as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
