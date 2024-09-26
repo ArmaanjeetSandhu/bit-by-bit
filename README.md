@@ -28,11 +28,12 @@ To extract basic information from a torrent file:
 python script.py info path/to/your/torrent/file.torrent
 ```
 
-This will output the tracker URL and the total length of the file(s) in the torrent:
+This will output the tracker URL, total length and info hash of the file(s) in the torrent:
 
 ```
 Tracker URL: http://bttracker.debian.org:6969/announce
 Length: 351272960
+Info hash: 1cad4a486798d952614c394eb15e75bec587fd08
 ```
 
 ## Note

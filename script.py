@@ -2,6 +2,7 @@ import json
 import sys
 import os
 import argparse
+import hashlib
 from typing import Union, Tuple, List, Dict, Any
 
 ENCODING = "utf-8"
@@ -11,6 +12,24 @@ class BencodeDecodeError(Exception):
     """Custom exception for Bencode decoding errors."""
 
     pass
+
+
+def encode_bencode(data):
+    if isinstance(data, int):
+        return f"i{data}e".encode(ENCODING)
+    elif isinstance(data, bytes):
+        return f"{len(data)}:".encode(ENCODING) + data
+    elif isinstance(data, str):
+        return encode_bencode(data.encode(ENCODING))
+    elif isinstance(data, list):
+        return b"l" + b"".join(encode_bencode(item) for item in data) + b"e"
+    elif isinstance(data, dict):
+        encoded = b"d"
+        for key, value in sorted(data.items()):
+            encoded += encode_bencode(key) + encode_bencode(value)
+        return encoded + b"e"
+    else:
+        raise ValueError(f"Cannot encode {type(data)} in Bencode")
 
 
 def decode_bencode(
@@ -124,6 +143,11 @@ def decode_bytes_in_structure(data: Any) -> Union[str, Dict, List, Any]:
     return data
 
 
+def calculate_info_hash(info_dict):
+    info_bencoded = encode_bencode(info_dict)
+    return hashlib.sha1(info_bencoded).hexdigest()
+
+
 def decode_command(bencoded_value: str) -> None:
     """Handle the 'decode' command."""
     try:
@@ -146,8 +170,10 @@ def info_command(file_name: str) -> None:
         bencoded_content = torrent_file.read()
 
     torrent, _ = decode_bencode(bencoded_content)
+    info_hash = calculate_info_hash(torrent[b"info"])
     print("Tracker URL:", torrent[b"announce"].decode(ENCODING))
     print("Length:", torrent[b"info"][b"length"])
+    print("Info Hash:", info_hash)
 
 
 def main() -> None:
