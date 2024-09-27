@@ -200,19 +200,6 @@ def info_command(file_name: str) -> None:
         print(hash)
 
 
-def print_dict_keys(d, indent=0):
-    for key, value in d.items():
-        if isinstance(key, bytes):
-            key = safe_decode(key)
-        print("  " * indent + str(key) + ":")
-        if isinstance(value, dict):
-            print_dict_keys(value, indent + 1)
-        elif isinstance(value, list):
-            print("  " * (indent + 1) + f"[List with {len(value)} items]")
-        else:
-            print("  " * (indent + 1) + f"Value type: {type(value)}")
-
-
 def safe_decode(byte_string):
     try:
         return byte_string.decode("utf-8")
