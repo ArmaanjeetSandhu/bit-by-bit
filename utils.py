@@ -1,4 +1,4 @@
-from typing import Union, Tuple, List, Dict, Any
+from typing import Any, Dict, List, Tuple, Union
 
 BencodeType = Union[str, int, List[Any], Dict[str, Any]]
 

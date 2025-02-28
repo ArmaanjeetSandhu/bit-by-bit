@@ -1,3 +1,4 @@
 script.log
 bitenv/
 __pycache__/
+.mypy_cache/
