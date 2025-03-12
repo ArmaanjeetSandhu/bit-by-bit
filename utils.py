@@ -510,6 +510,37 @@ def create_handshake_message(info_hash, peer_id, support_extensions=False):
     return handshake
 
 
+def perform_handshake(socket, info_hash, peer_id, support_extensions=False):
+    """
+    Perform a BitTorrent handshake on an already connected socket.
+
+    Args:
+        socket (socket.socket): Connected socket
+        info_hash (bytes): The 20-byte info hash
+        peer_id (bytes): The 20-byte peer ID
+        support_extensions (bool): Whether to indicate support for extensions
+
+    Returns:
+        bytes: The peer ID received during the handshake
+    """
+    # Create the handshake message with extension support if requested
+    handshake = create_handshake_message(info_hash, peer_id, support_extensions)
+
+    # Send handshake
+    socket.send(handshake)
+
+    # Receive handshake response
+    response = recvall(socket, 68)  # A complete handshake is 68 bytes
+    if len(response) != 68:
+        raise ValueError(
+            f"Expected 68 bytes handshake response, got {len(response)} bytes"
+        )
+
+    # Extract and return peer ID (last 20 bytes)
+    response_peer_id = response[-20:]
+    return response_peer_id
+
+
 def handshake_with_peer(peer_addr, info_hash, support_extensions=False):
     """
     Connect to a peer and perform a handshake.
@@ -528,22 +559,203 @@ def handshake_with_peer(peer_addr, info_hash, support_extensions=False):
     # Generate a random peer ID
     peer_id = generate_peer_id()
 
-    # Create the handshake message with extension support if requested
-    handshake = create_handshake_message(info_hash, peer_id, support_extensions)
-
-    # Establish TCP connection and send handshake
+    # Establish TCP connection
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(10)  # 10 second timeout
 
     try:
         s.connect((ip, port))
-        s.send(handshake)
-
-        # Receive handshake response
-        response = recvall(s, 68)  # A complete handshake is 68 bytes
-
-        # Extract and return peer ID (last 20 bytes)
-        response_peer_id = response[-20:]
+        response_peer_id = perform_handshake(s, info_hash, peer_id, support_extensions)
         return response_peer_id
     finally:
         s.close()
+
+
+def connect_to_peer(peer_addr, info_hash):
+    """
+    Connect to a peer and perform the initial BitTorrent handshake.
+
+    Args:
+        peer_addr (str): Peer address in the format "ip:port"
+        info_hash (bytes): Binary info hash
+
+    Returns:
+        socket.socket: Socket connected to the peer
+    """
+    ip, port_str = peer_addr.split(":")
+    port = int(port_str)
+
+    # Generate a peer ID
+    peer_id = generate_peer_id()
+
+    # Establish TCP connection
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(30)  # 30 second timeout
+
+    try:
+        s.connect((ip, port))
+
+        # Perform handshake
+        perform_handshake(s, info_hash, peer_id)
+
+        # Wait for bitfield message
+        message_length, message_id, _ = receive_message(s)
+        if message_id != 5:  # bitfield message id
+            raise ValueError(
+                f"Expected bitfield message (id 5), got message id {message_id}"
+            )
+
+        # Send interested message
+        send_message(s, 2, b"")  # message id 2 for interested
+
+        # Wait for unchoke message
+        message_length, message_id, _ = receive_message(s)
+        if message_id != 1:  # unchoke message id
+            raise ValueError(
+                f"Expected unchoke message (id 1), got message id {message_id}"
+            )
+
+        return s
+    except Exception as e:
+        s.close()
+        raise e
+
+
+def download_piece_from_connection(socket, piece_index, piece_size):
+    """
+    Download a specific piece using an existing connection.
+
+    Args:
+        socket (socket.socket): Socket connected to the peer
+        piece_index (int): Index of the piece to download
+        piece_size (int): Size of the piece in bytes
+
+    Returns:
+        bytes: The downloaded piece data
+    """
+    # Calculate number of blocks and block size
+    block_size = 2**14  # 16 KiB
+    num_blocks = (piece_size + block_size - 1) // block_size
+
+    # Prepare to store piece data
+    piece_data = bytearray(piece_size)
+
+    # Request each block
+    for block_index in range(num_blocks):
+        # Calculate block offset and length
+        block_offset = block_index * block_size
+        block_length = min(block_size, piece_size - block_offset)
+
+        # Send request message
+        payload = struct.pack(">III", piece_index, block_offset, block_length)
+        send_message(socket, 6, payload)  # message id 6 for request
+
+        # Receive piece message
+        _, message_id, payload = receive_message(socket)
+        if message_id != 7:  # piece message id
+            raise ValueError(
+                f"Expected piece message (id 7), got message id {message_id}"
+            )
+
+        # Parse the piece message payload
+        index, begin = struct.unpack(">II", payload[:8])
+        block_data = payload[8:]
+
+        # Verify index and begin values
+        if index != piece_index or begin != block_offset:
+            raise ValueError(
+                f"Piece message mismatch. Expected index={piece_index}, begin={block_offset}, got index={index}, begin={begin}"
+            )
+
+        # Store the block data
+        piece_data[block_offset : block_offset + len(block_data)] = block_data
+
+    return bytes(piece_data)
+
+
+def download_file(torrent_file, output_file):
+    """
+    Download a complete file from a torrent and save it to the output file.
+
+    Args:
+        torrent_file (str): Path to the torrent file
+        output_file (str): Path to save the downloaded file
+    """
+    # Read and parse the torrent file
+    with open(torrent_file, "rb") as f:
+        bencoded_data = f.read()
+        bencoded_string = bencoded_data.decode("latin1", errors="replace")
+        torrent = decode_bencode(bencoded_string)
+
+    # Extract necessary information
+    tracker_url = torrent["announce"]
+    info_dict = torrent["info"]
+    piece_length = info_dict["piece length"]
+    file_length = info_dict["length"]
+
+    # Calculate info hash (binary form for peer communication)
+    encoded_info = bencode(info_dict)
+    info_hash = hashlib.sha1(encoded_info).digest()
+
+    # Get the piece hashes
+    piece_hashes = get_piece_hashes(info_dict["pieces"])
+    total_pieces = len(piece_hashes)
+
+    # Get peers from tracker
+    peers = get_peers_from_tracker(tracker_url, info_hash, file_length)
+    if not peers:
+        print("No peers available")
+        return False
+
+    # Create the output file
+    with open(output_file, "wb") as f:
+        f.truncate(file_length)  # Pre-allocate the file size
+
+    # Try to download from each peer
+    for peer_addr in peers:
+        sock = None
+        try:
+            print(f"Connecting to peer {peer_addr}...")
+            sock = connect_to_peer(peer_addr, info_hash)
+
+            # Download each piece
+            for piece_index in range(total_pieces):
+                # Calculate piece size (the last piece might be smaller)
+                if piece_index == total_pieces - 1:
+                    piece_size = file_length - (total_pieces - 1) * piece_length
+                else:
+                    piece_size = piece_length
+
+                print(f"Downloading piece {piece_index + 1}/{total_pieces}...")
+
+                piece_data = download_piece_from_connection(
+                    sock, piece_index, piece_size
+                )
+
+                # Verify the piece hash
+                piece_hash = hashlib.sha1(piece_data).hexdigest()
+                if piece_hash != piece_hashes[piece_index]:
+                    print(f"Piece {piece_index} hash verification failed")
+                    raise ValueError("Hash verification failed")
+
+                # Write the piece to the output file
+                with open(output_file, "r+b") as f:
+                    f.seek(piece_index * piece_length)
+                    f.write(piece_data)
+
+                print(f"Piece {piece_index + 1}/{total_pieces} downloaded and verified")
+
+            # All pieces downloaded successfully
+            print(f"File downloaded to {output_file}")
+            return True
+
+        except Exception as e:
+            print(f"Failed to download from peer {peer_addr}: {e}")
+            # Continue with the next peer
+        finally:
+            if sock:
+                sock.close()
+
+    # All peers failed
+    print("Failed to download file from any peer")
+    return False
