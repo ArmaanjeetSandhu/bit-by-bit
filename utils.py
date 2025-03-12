@@ -8,6 +8,44 @@ from typing import Any, Dict, List, Tuple, Union
 BencodeType = Union[str, int, List[Any], Dict[str, Any]]
 
 
+def generate_peer_id(client_id="-PY0001-", random=True):
+    """
+    Generate a 20-byte peer ID for BitTorrent communication.
+
+    Args:
+        client_id (str): The client identifier prefix (default: "-PY0001-")
+                        Should be 8 characters: -XX0000- format where XX is client code
+        random (bool): Whether to generate a random ID or use zeros (default: True)
+
+    Returns:
+        bytes: A 20-byte peer ID
+
+    The BitTorrent spec typically uses a format like:
+    -XX0000-123456789012 (20 bytes total)
+    Where:
+    - First 8 bytes identify the client (-XX0000-)
+    - Remaining 12 bytes are usually random or contain version info
+    """
+
+    # Ensure client_id is 8 characters
+    if len(client_id) != 8:
+        raise ValueError("Client ID prefix must be 8 characters long")
+
+    # Create prefix bytes
+    prefix = client_id.encode("ascii")
+
+    # Generate the random or zero-filled suffix (12 bytes)
+    if random:
+        # Generate random bytes for the remaining 12 bytes
+        suffix = bytes(random.randint(0, 255) for _ in range(12))
+    else:
+        # Use zeros for deterministic IDs
+        suffix = b"0" * 12
+
+    # Combine prefix and suffix to form 20-byte peer ID
+    return prefix + suffix
+
+
 def decode_bencode(bdata: str) -> BencodeType:
     """
     Decode a bencoded string.
@@ -224,7 +262,7 @@ def get_peers_from_tracker(tracker_url, info_hash, file_length):
     # Prepare query parameters
     params = {
         "info_hash": info_hash,
-        "peer_id": "-CC0001-" + "0" * 12,
+        "peer_id": generate_peer_id(client_id="-PY0001").decode("latin1"),
         "port": 6881,
         "uploaded": 0,
         "downloaded": 0,
@@ -285,9 +323,7 @@ def download_piece_from_peer(
     port = int(port_str)
 
     # Generate a random peer ID
-    import random
-
-    peer_id = bytes(random.randint(0, 255) for _ in range(20))
+    peer_id = generate_peer_id()
 
     # Create the handshake message
     protocol = b"BitTorrent protocol"
@@ -440,3 +476,74 @@ def download_piece(torrent_file, piece_index, output_file):
 
     print("Failed to download piece from any peer")
     return False
+
+
+def create_handshake_message(info_hash, peer_id, support_extensions=False):
+    """
+    Create a BitTorrent handshake message.
+
+    Args:
+        info_hash (bytes): The 20-byte info hash
+        peer_id (bytes): The 20-byte peer ID
+        support_extensions (bool): Whether to indicate support for extensions
+
+    Returns:
+        bytes: The handshake message
+    """
+    protocol = b"BitTorrent protocol"
+    protocol_length = bytes([len(protocol)])
+
+    # Create reserved bytes
+    reserved = bytearray(8)  # 8 bytes (64 bits) of zeros
+
+    # Set the extension bit if requested (20th bit from right)
+    if support_extensions:
+        # Set the reserved bytes according to the spec: 00 00 00 00 00 10 00 00
+        reserved[5] = 0x10
+
+    # Convert reserved bytearray to bytes
+    reserved = bytes(reserved)
+
+    # Construct the handshake message
+    handshake = protocol_length + protocol + reserved + info_hash + peer_id
+
+    return handshake
+
+
+def handshake_with_peer(peer_addr, info_hash, support_extensions=False):
+    """
+    Connect to a peer and perform a handshake.
+
+    Args:
+        peer_addr (str): Peer address in the format "ip:port"
+        info_hash (bytes): Binary info hash
+        support_extensions (bool): Whether to indicate support for extensions
+
+    Returns:
+        bytes: The peer ID received during the handshake
+    """
+    ip, port_str = peer_addr.split(":")
+    port = int(port_str)
+
+    # Generate a random peer ID
+    peer_id = generate_peer_id()
+
+    # Create the handshake message with extension support if requested
+    handshake = create_handshake_message(info_hash, peer_id, support_extensions)
+
+    # Establish TCP connection and send handshake
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(10)  # 10 second timeout
+
+    try:
+        s.connect((ip, port))
+        s.send(handshake)
+
+        # Receive handshake response
+        response = recvall(s, 68)  # A complete handshake is 68 bytes
+
+        # Extract and return peer ID (last 20 bytes)
+        response_peer_id = response[-20:]
+        return response_peer_id
+    finally:
+        s.close()
