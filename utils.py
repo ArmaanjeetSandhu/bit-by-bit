@@ -1,3 +1,4 @@
+import struct
 from typing import Any, Dict, List, Tuple, Union
 
 BencodeType = Union[str, int, List[Any], Dict[str, Any]]
@@ -133,3 +134,72 @@ def get_piece_hashes(pieces: str) -> List[str]:
         hashes.append(hex_hash)
 
     return hashes
+
+
+def recvall(sock, n):
+    """
+    Receive exactly n bytes from a socket.
+
+    Args:
+        sock (socket.socket): Socket to receive from
+        n (int): Number of bytes to receive
+
+    Returns:
+        bytes: Received data
+    """
+    data = b""
+    while len(data) < n:
+        packet = sock.recv(n - len(data))
+        if not packet:
+            raise ValueError("Connection closed while receiving data")
+        data += packet
+    return data
+
+
+def send_message(sock, message_id, payload):
+    """
+    Send a peer message.
+
+    Args:
+        sock (socket.socket): Socket to send the message through
+        message_id (int): ID of the message
+        payload (bytes): Payload of the message
+    """
+    # Calculate message length (1 byte for message id + payload length)
+    message_length = len(payload) + 1
+
+    # Construct the message
+    message = struct.pack(">I", message_length) + bytes([message_id]) + payload
+
+    # Send the message
+    sock.send(message)
+
+
+def receive_message(sock):
+    """
+    Receive a peer message.
+
+    Args:
+        sock (socket.socket): Socket to receive the message from
+
+    Returns:
+        Tuple[int, int, bytes]: Message length, message ID, and payload
+    """
+    # Receive message length prefix (4 bytes)
+    length_prefix = recvall(sock, 4)
+
+    # Parse message length
+    message_length = struct.unpack(">I", length_prefix)[0]
+
+    # Check for keep-alive message (length = 0)
+    if message_length == 0:
+        return 0, None, b""
+
+    # Receive the rest of the message
+    message = recvall(sock, message_length)
+
+    # Parse message ID and payload
+    message_id = message[0]
+    payload = message[1:] if len(message) > 1 else b""
+
+    return message_length, message_id, payload
