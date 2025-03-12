@@ -73,3 +73,37 @@ def decode_bencode(bdata: str) -> BencodeType:
 
     decoded, _ = decode_next(bdata, 0)
     return decoded
+
+
+def bencode(data: Any) -> bytes:
+    """
+    Encode data into a bencoded byte string.
+
+    Args:
+        data: The data to encode
+
+    Returns:
+        bytes: The bencoded data
+    """
+    if isinstance(data, str):
+        # Convert string to bytes using latin1 encoding to handle binary data correctly
+        data_bytes = data.encode("latin1")
+        return f"{len(data)}:".encode("ascii") + data_bytes
+    elif isinstance(data, int):
+        return f"i{data}e".encode("ascii")
+    elif isinstance(data, list):
+        result = b"l"
+        for item in data:
+            result += bencode(item)
+        result += b"e"
+        return result
+    elif isinstance(data, dict):
+        result = b"d"
+        # Sort keys for consistent ordering
+        for key in sorted(data.keys()):
+            result += bencode(key)
+            result += bencode(data[key])
+        result += b"e"
+        return result
+    else:
+        raise TypeError(f"Cannot bencode data of type {type(data)}")
