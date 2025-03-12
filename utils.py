@@ -107,3 +107,29 @@ def bencode(data: Any) -> bytes:
         return result
     else:
         raise TypeError(f"Cannot bencode data of type {type(data)}")
+
+
+def get_piece_hashes(pieces: str) -> List[str]:
+    """
+    Split concatenated piece hashes into individual SHA1 hashes.
+
+    Args:
+        pieces (str): The concatenated piece hashes
+
+    Returns:
+        List[str]: List of SHA1 hashes as hex strings
+    """
+    # Convert string to bytes using latin1 encoding (preserves byte values)
+    pieces_bytes = pieces.encode("latin1")
+
+    # Each SHA1 hash is 20 bytes
+    hash_size = 20
+
+    # Split into 20-byte chunks and convert each to hex
+    hashes = []
+    for i in range(0, len(pieces_bytes), hash_size):
+        piece_hash = pieces_bytes[i : i + hash_size]
+        hex_hash = piece_hash.hex()
+        hashes.append(hex_hash)
+
+    return hashes
