@@ -3,3 +3,4 @@ bitenv/
 __pycache__/
 .mypy_cache/
 .vscode/
+structure.*
