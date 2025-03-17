@@ -1,7 +1,7 @@
 import json
 import socket
 import sys
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, cast
 
 from bit_by_bit.utils import (
     PeerConnection,
@@ -117,7 +117,8 @@ def main():
                     try:
                         peer = PeerConnection(peer_addr, info_hash_bytes)
                         peer.connect(support_extensions=True, handshake_only=True)
-                        print(f"Peer ID: {peer.remote_peer_id.hex()}")
+                        if peer.remote_peer_id is not None:
+                            print(f"Peer ID: {peer.remote_peer_id.hex()}")
                         metadata_id = peer.get_ut_metadata_id()
                         if metadata_id is not None:
                             print(f"Peer Metadata Extension ID: {metadata_id}")
@@ -138,12 +139,13 @@ def main():
         info_hash_hex, trackers = parse_magnet_link(magnet_link)
         metadata, tracker_url = retrieve_metadata_from_trackers(info_hash_hex, trackers)
         if metadata:
+            metadata_dict: Dict[str, Any] = cast(Dict[str, Any], metadata)
             print(f"Tracker URL: {tracker_url}")
-            print(f"Length: {metadata['length']}")
+            print(f"Length: {metadata_dict['length']}")
             print(f"Info Hash: {info_hash_hex}")
-            print(f"Piece Length: {metadata['piece length']}")
+            print(f"Piece Length: {metadata_dict['piece length']}")
             print("Piece Hashes:")
-            piece_hashes = get_piece_hashes(metadata["pieces"])
+            piece_hashes = get_piece_hashes(cast(str, metadata_dict["pieces"]))
             for hash_value in piece_hashes:
                 print(hash_value)
         else:
@@ -158,9 +160,10 @@ def main():
         if not metadata:
             print("Failed to retrieve metadata from any peer")
             return
-        piece_length = metadata["piece length"]
-        file_length = metadata["length"]
-        piece_hashes = get_piece_hashes(metadata["pieces"])
+        metadata_dict: Dict[str, Any] = cast(Dict[str, Any], metadata)
+        piece_length = int(metadata_dict["piece length"])
+        file_length = int(metadata_dict["length"])
+        piece_hashes = get_piece_hashes(cast(str, metadata_dict["pieces"]))
         total_pieces = len(piece_hashes)
         if piece_index == total_pieces - 1:
             piece_size = file_length - (total_pieces - 1) * piece_length

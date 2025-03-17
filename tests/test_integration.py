@@ -1,4 +1,5 @@
 import os
+from typing import Any, Dict, cast
 
 import pytest
 
@@ -18,8 +19,8 @@ class TestRealTorrentFile:
         """Test that we can parse a real torrent file."""
         torrent = TorrentFile(real_torrent_file)
         assert torrent.tracker_url
-        assert torrent.piece_length > 0
-        assert torrent.file_length > 0
+        assert int(torrent.piece_length) > 0
+        assert int(torrent.file_length) > 0
         assert len(torrent.piece_hashes) > 0
         assert torrent.info_hash_hex
         print("\nReal torrent info:")
@@ -68,12 +69,13 @@ class TestRealMagnetLink:
         info_hash, trackers = parse_magnet_link(real_magnet_link)
         metadata, tracker_url = retrieve_metadata_from_trackers(info_hash, trackers)
         if metadata:
-            assert "length" in metadata
-            assert "piece length" in metadata
-            assert "pieces" in metadata
+            metadata_dict: Dict[str, Any] = cast(Dict[str, Any], metadata)
+            assert "length" in metadata_dict
+            assert "piece length" in metadata_dict
+            assert "pieces" in metadata_dict
             print(f"\nRetrieved metadata from {tracker_url}:")
-            print(f"Length: {metadata['length']} bytes")
-            print(f"Piece Length: {metadata['piece length']} bytes")
-            print(f"Pieces: {len(metadata['pieces']) // 20} total")
+            print(f"Length: {metadata_dict['length']} bytes")
+            print(f"Piece Length: {metadata_dict['piece length']} bytes")
+            print(f"Pieces: {len(cast(str, metadata_dict['pieces'])) // 20} total")
         else:
             pytest.skip("Could not retrieve metadata from any tracker")

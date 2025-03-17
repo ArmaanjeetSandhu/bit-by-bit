@@ -2,6 +2,7 @@ import json
 import struct
 import sys
 from unittest.mock import Mock, call, mock_open, patch
+from typing import Any, Dict, cast
 
 import pytest
 
@@ -93,15 +94,16 @@ class TestBencode:
 
     def test_decode_complex(self, sample_bencode_data):
         decoded = decode_bencode(sample_bencode_data["complex"])
-        assert decoded["announce"] == sample_bencode_data["decoded_complex"]["announce"]
-        assert (
-            decoded["info"]["length"]
-            == sample_bencode_data["decoded_complex"]["info"]["length"]
-        )
-        assert (
-            decoded["info"]["piece length"]
-            == sample_bencode_data["decoded_complex"]["info"]["piece length"]
-        )
+        decoded_dict = cast(Dict[str, Any], decoded)
+        complex_dict = cast(Dict[str, Any], sample_bencode_data["decoded_complex"])
+
+        assert decoded_dict["announce"] == complex_dict["announce"]
+
+        decoded_info = cast(Dict[str, Any], decoded_dict["info"])
+        complex_info = cast(Dict[str, Any], complex_dict["info"])
+
+        assert decoded_info["length"] == complex_info["length"]
+        assert decoded_info["piece length"] == complex_info["piece length"]
 
     def test_encode_string(self):
         encoded = bencode("hello")
@@ -156,9 +158,12 @@ class TestTorrentFile:
 
     def test_torrent_file_init(self, mock_torrent_file, mock_torrent_file_data):
         torrent = TorrentFile(mock_torrent_file)
-        assert torrent.tracker_url == mock_torrent_file_data["announce"]
-        assert torrent.piece_length == mock_torrent_file_data["info"]["piece length"]
-        assert torrent.file_length == mock_torrent_file_data["info"]["length"]
+        mock_data = cast(Dict[str, Any], mock_torrent_file_data)
+        mock_info = cast(Dict[str, Any], mock_data["info"])
+
+        assert torrent.tracker_url == mock_data["announce"]
+        assert torrent.piece_length == mock_info["piece length"]
+        assert torrent.file_length == mock_info["length"]
         assert len(torrent.piece_hashes) == 2
 
     def test_get_piece_size(self, mock_torrent_file):
